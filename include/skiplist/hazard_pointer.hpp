@@ -98,21 +98,28 @@ private:
 template<typename T>
 class RetireList {
 public:
-    static void retire(T* ptr) {
-        thread_local std::vector<T*> retired;
-        retired.push_back(ptr);
+    using DeleterFunc = void (*)(T*);
+
+    struct Entry {
+        T* ptr{nullptr};
+        DeleterFunc deleter{nullptr};
+    };
+
+    static void retire(T* ptr, DeleterFunc deleter = [](T* p) { delete p; }) {
+        thread_local std::vector<Entry> retired;
+        retired.push_back({ptr, deleter});
         if (retired.size() >= 16) {
             reclaim(retired);
         }
     }
 
     static void reclaim_all() {
-        thread_local std::vector<T*> retired;
+        thread_local std::vector<Entry> retired;
         reclaim(retired);
     }
 
 private:
-    static void reclaim(std::vector<T*>& retired) {
+    static void reclaim(std::vector<Entry>& retired) {
         if (retired.empty()) return;
 
         std::vector<void*> hazards;
@@ -125,9 +132,13 @@ private:
         }
         std::sort(hazards.begin(), hazards.end());
 
-        auto it = std::remove_if(retired.begin(), retired.end(), [&](T* ptr) {
-            if (!std::binary_search(hazards.begin(), hazards.end(), static_cast<void*>(ptr))) {
-                delete ptr;
+        auto it = std::remove_if(retired.begin(), retired.end(), [&](const Entry& entry) {
+            if (!std::binary_search(hazards.begin(), hazards.end(), static_cast<void*>(entry.ptr))) {
+                if (entry.deleter) {
+                    entry.deleter(entry.ptr);
+                } else {
+                    delete entry.ptr;
+                }
                 return true;
             }
             return false;

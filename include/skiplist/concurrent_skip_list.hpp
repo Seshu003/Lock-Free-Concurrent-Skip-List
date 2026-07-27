@@ -138,6 +138,7 @@ public:
             Node* victim = succs[0];
             std::size_t top_level = victim->level;
 
+            // Mark top levels first to signal deletion to other threads
             for (std::size_t i = top_level; i-- > 1;) {
                 MarkedPtr<Node> current = victim->next[i].load(std::memory_order_relaxed);
                 while (!current.mark()) {
@@ -150,6 +151,7 @@ public:
                 }
             }
 
+            // Mark level 0 last so other threads stop treating node as live
             MarkedPtr<Node> current = victim->next[0].load(std::memory_order_relaxed);
             while (true) {
                 bool marked = current.mark();
@@ -161,7 +163,8 @@ public:
                                                              std::memory_order_relaxed)) {
                     V dummy2{};
                     find_position(key, preds, succs, false, dummy2);
-                    RetireList<Node>::retire(victim);
+                    // Use matching Node::destroy to free placement new memory
+                    RetireList<Node>::retire(victim, &Node::destroy);
                     return true;
                 }
             }
