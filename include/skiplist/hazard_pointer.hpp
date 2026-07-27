@@ -106,7 +106,7 @@ public:
     };
 
     static void retire(T* ptr, DeleterFunc deleter = [](T* p) { delete p; }) {
-        thread_local std::vector<Entry> retired;
+        auto& retired = get_retired_list();
         retired.push_back({ptr, deleter});
         if (retired.size() >= 16) {
             reclaim(retired);
@@ -114,11 +114,16 @@ public:
     }
 
     static void reclaim_all() {
-        thread_local std::vector<Entry> retired;
+        auto& retired = get_retired_list();
         reclaim(retired);
     }
 
 private:
+    static std::vector<Entry>& get_retired_list() {
+        thread_local std::vector<Entry> list;
+        return list;
+    }
+
     static void reclaim(std::vector<Entry>& retired) {
         if (retired.empty()) return;
 
